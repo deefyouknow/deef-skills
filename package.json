@@ -1,0 +1,38 @@
+{
+  "name": "@thanawat/system-architecture-guide",
+  "version": "1.0.0",
+  "description": "Engineering skill pack for AI coding agents — system architecture, databases, caching, embedded, security & more.",
+  "type": "module",
+  "bin": {
+    "system-architecture-guide": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skill",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node bin/cli.js"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.0",
+    "picocolors": "^1.1.1"
+  },
+  "keywords": [
+    "agent",
+    "skill",
+    "ai",
+    "architecture",
+    "gemini",
+    "cursor",
+    "claude",
+    "copilot",
+    "engineering"
+  ],
+  "author": "Thanawat",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
