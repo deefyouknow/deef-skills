@@ -1,123 +1,38 @@
-# 🧠 Deef Skills
+# deef-skills
 
-> Engineering skill packs for AI coding agents — one command installs any skill into Gemini, Cursor, Claude Code, or GitHub Copilot.
+Agent skills loaded by Gemini, Cursor, Claude Code, and GitHub Copilot.
 
-```bash
-npx @deefyouknow/skills
-```
+## Layout
 
----
+Skills live under `skills/`, grouped into buckets:
 
-## ✨ Available Skills
+- `engineering/` — system design, backend, database, embedded, security
+- `productivity/` — non-code workflow tools *(coming soon)*
+- `in-progress/` — drafts not yet ready to ship
 
-| Skill | Topics |
-|-------|--------|
-| **system-architecture** | Clean Code/SOLID, Backend (Rust/Go/Node), PostgreSQL+PgBouncer, Redis caching, Frontend Atomic Design, ESP32/Arduino embedded, Testing, CI/CD, API Security |
+Each skill is its own directory containing a `SKILL.md` (with YAML frontmatter — `name` and `description`) and any bundled reference files.
 
-> More skills coming soon — just add a folder to `skills/` and it's automatically available.
+## Install
 
----
-
-## 🚀 Installation
-
-Run the interactive installer:
+**With npx (works for every agent)**
 
 ```bash
-npx @deefyouknow/skills
+npx deef-skills
 ```
 
-It will:
-1. Detect which AI agents you have installed
-2. Let you **pick which skills** to install (multi-select)
-3. Let you pick the target agent
-4. Install everything automatically
+The interactive installer detects your agents, lets you pick which skills to install, and copies everything to the right location automatically.
 
-### What it looks like
+**Supported agents**
 
-```
-  🧠 Deef Skills   AI Coding Agent Skill Installer
+| Agent | Install location |
+|-------|-----------------|
+| Gemini / Antigravity | `~/.gemini/config/skills/` (global) or `.agents/skills/` (local) |
+| Cursor | `.cursor/rules/<skill>.mdc` |
+| Claude Code | `CLAUDE.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
 
-◇  Found 1 skill
+## Reference
 
-│  Agents on this system
-│  ● 🔮 Gemini / Antigravity
-│  ● 🤖 Claude Code
-│  ○ 🖱️ Cursor  (not detected)
+### Engineering
 
-◆  Select skills to install:
-│  ◼ system-architecture  Deep-dive engineering reference...
-└
-
-◆  Select target agent:
-│  ✓ 🔮 Gemini / Antigravity   detected
-│  ✓ 🤖 Claude Code            detected
-└
-
-◆  Select install scope:
-│  ● 🌍 Global   ~/.gemini/config/skills/  (all projects)
-│  ○ 📁 Local    .agents/skills/           (this workspace only)
-└
-
-│  Installed to 🔮 Gemini / Antigravity (global)
-│  ✔  System Architecture Guide
-│     /Users/you/.gemini/config/skills/system-architecture
-│
-│  Restart your agent to load the new skills.
-
-🎉  All 1 skill installed successfully!
-```
-
----
-
-## 🤖 Supported Agents
-
-| Agent | Detection | Install Location |
-|-------|-----------|-----------------|
-| **Gemini / Antigravity** | `~/.gemini` exists | `~/.gemini/config/skills/<skill>/` (global) or `.agents/skills/<skill>/` (local) |
-| **Cursor** | `.cursor/` or `.git` | `.cursor/rules/<skill>.mdc` |
-| **Claude Code** | `.git` | Appended to `CLAUDE.md` |
-| **GitHub Copilot** | `.git` | `.github/copilot-instructions.md` |
-
----
-
-## 📁 Repository Structure
-
-```
-├── bin/cli.js              ← npx entry point
-├── src/cli.js              ← interactive installer
-├── skills/
-│   └── system-architecture/
-│       ├── SKILL.md        ← main skill file
-│       └── references/     ← detailed reference docs
-│           ├── clean-code-architecture.md
-│           ├── backend-server.md
-│           ├── postgres-pgbouncer.md
-│           ├── redis-caching.md
-│           ├── frontend-atomic-design.md
-│           ├── embedded-esp32-arduino.md
-│           ├── testing-strategy.md
-│           ├── cicd-pipeline.md
-│           └── api-security.md
-└── package.json
-```
-
----
-
-## 📦 Publishing
-
-```bash
-npm login
-npm publish --access public
-```
-
-After publishing, anyone can install your skills with:
-
-```bash
-npx @deefyouknow/skills
-```
-
----
-
-## License
-
-MIT © deefyouknow
+- **system-architecture** — Deep-dive reference for fast, maintainable systems. Covers clean code/SOLID, backend runtime selection (Rust/Axum, Go, Node+Fastify), PostgreSQL pooling with PgBouncer, Redis caching and stampede prevention, frontend Atomic Design, ESP32/Arduino embedded firmware, testing strategy, CI/CD pipelines, and API security.

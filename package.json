@@ -1,5 +1,5 @@
 {
-  "name": "@deefyouknow/skills",
+  "name": "deef-skills",
   "version": "1.0.0",
   "description": "Engineering skill packs for AI coding agents (Gemini, Cursor, Claude Code, Copilot) — interactive installer included.",
   "type": "module",
