@@ -17,7 +17,7 @@ Each skill is its own directory containing a `SKILL.md` (with YAML frontmatter �
 **With npx (works for every agent)**
 
 ```bash
-npx deef-skills
+npx github:deefyouknow/deef-skills
 ```
 
 The interactive installer detects your agents, lets you pick which skills to install, and copies everything to the right location automatically.
@@ -26,10 +26,16 @@ The interactive installer detects your agents, lets you pick which skills to ins
 
 | Agent | Install location |
 |-------|-----------------|
-| Gemini / Antigravity | `~/.gemini/config/skills/` (global) or `.agents/skills/` (local) |
-| Cursor | `.cursor/rules/<skill>.mdc` |
-| Claude Code | `CLAUDE.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` |
+| 🔮 Gemini / Antigravity | `~/.gemini/config/skills/` (global) or `.agents/skills/` (local) |
+| 🤖 Claude Code | `~/.claude/CLAUDE.md` (global) or `CLAUDE.md` (local) |
+| 🖱️ Cursor | `.cursor/rules/<skill>.mdc` |
+| 🌊 Windsurf | `~/.codeium/windsurf/memories/global_rules.md` (global) or `.windsurfrules` (local) |
+| ⚡ Cline | `.clinerules` |
+| 🦘 Roo Code | `.roo/rules/<skill>.md` |
+| 🔢 Kilo Code | `.kilocode/rules/<skill>.md` |
+| 🤝 Aider | `CONVENTIONS.md` |
+| 🌀 OpenAI Codex / Amp | `AGENTS.md` |
+| 🐙 GitHub Copilot | `.github/copilot-instructions.md` |
 
 ## Reference
 

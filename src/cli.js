@@ -41,24 +41,24 @@ function injectSkillBlock(existing, skillContent, skillName) {
   const s = `<!-- agent-skill-start: ${skillName} -->`;
   const e = `<!-- agent-skill-end: ${skillName} -->`;
   const block = `${s}\n${skillContent.trim()}\n${e}`;
-  const regex = new RegExp(`${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+  const regex = new RegExp(
+    `${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+    'g'
+  );
   const cleaned = existing.replace(regex, '').trim();
   return cleaned ? `${cleaned}\n\n${block}` : block;
 }
 
-// ─── Discover skills from /skills directory ───────────────────────────────────
+// ─── Discover skills ──────────────────────────────────────────────────────────
 
 async function discoverSkills() {
   const entries = await fs.readdir(SKILLS_DIR, { withFileTypes: true });
   const skills = [];
-
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const skillDir = join(SKILLS_DIR, entry.name);
     const skillMdPath = join(skillDir, 'SKILL.md');
     if (!(await pathExists(skillMdPath))) continue;
-
-    // Parse name + description from SKILL.md frontmatter
     const content = await fs.readFile(skillMdPath, 'utf-8');
     const fmMatch = content.match(/^---\r?\n([\s\S]+?)\r?\n---/);
     let name = entry.name;
@@ -68,18 +68,17 @@ async function discoverSkills() {
       const nameLine = fm.split('\n').find(l => l.startsWith('name:'));
       const descLine = fm.split('\n').find(l => l.startsWith('description:'));
       if (nameLine) name = nameLine.replace('name:', '').trim();
-      if (descLine) description = descLine.replace('description:', '').trim().slice(0, 80) + '...';
+      if (descLine) description = descLine.replace('description:', '').trim().slice(0, 80) + '…';
     }
-
     skills.push({ id: entry.name, name, description, dir: skillDir, content });
   }
-
   return skills;
 }
 
 // ─── Agent Definitions ───────────────────────────────────────────────────────
 
 const AGENTS = [
+  // ── Gemini / Antigravity ──────────────────────────────────────────────────
   {
     id: 'gemini',
     name: 'Gemini / Antigravity',
@@ -97,6 +96,35 @@ const AGENTS = [
       return dest;
     },
   },
+
+  // ── Claude Code ───────────────────────────────────────────────────────────
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    icon: '🤖',
+    supportsGlobal: true,
+    async detect() {
+      const cwd = process.cwd();
+      return (await pathExists(join(cwd, 'CLAUDE.md'))) || (await pathExists(join(cwd, '.git')));
+    },
+    async installGlobal(skill) {
+      // Claude Code global: ~/.claude/CLAUDE.md
+      const dir = join(homedir(), '.claude');
+      await fs.mkdir(dir, { recursive: true });
+      const targetFile = join(dir, 'CLAUDE.md');
+      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
+      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
+      return targetFile;
+    },
+    async installLocal(skill, cwd) {
+      const targetFile = join(cwd, 'CLAUDE.md');
+      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
+      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
+      return targetFile;
+    },
+  },
+
+  // ── Cursor ────────────────────────────────────────────────────────────────
   {
     id: 'cursor',
     name: 'Cursor',
@@ -117,22 +145,131 @@ const AGENTS = [
       return targetFile;
     },
   },
+
+  // ── Windsurf (Codeium) ────────────────────────────────────────────────────
   {
-    id: 'claude',
-    name: 'Claude Code',
-    icon: '🤖',
-    supportsGlobal: false,
-    async detect() {
-      const cwd = process.cwd();
-      return (await pathExists(join(cwd, 'CLAUDE.md'))) || (await pathExists(join(cwd, '.git')));
+    id: 'windsurf',
+    name: 'Windsurf',
+    icon: '🌊',
+    supportsGlobal: true,
+    async detect() { return pathExists(join(homedir(), '.codeium')); },
+    async installGlobal(skill) {
+      const dir = join(homedir(), '.codeium', 'windsurf', 'memories');
+      await fs.mkdir(dir, { recursive: true });
+      const targetFile = join(dir, 'global_rules.md');
+      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
+      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
+      return targetFile;
     },
     async installLocal(skill, cwd) {
-      const targetFile = join(cwd, 'CLAUDE.md');
+      const targetFile = join(cwd, '.windsurfrules');
       const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
       await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
       return targetFile;
     },
   },
+
+  // ── Cline ─────────────────────────────────────────────────────────────────
+  {
+    id: 'cline',
+    name: 'Cline',
+    icon: '⚡',
+    supportsGlobal: false,
+    async detect() {
+      const cwd = process.cwd();
+      return (await pathExists(join(cwd, '.clinerules'))) || (await pathExists(join(cwd, '.git')));
+    },
+    async installLocal(skill, cwd) {
+      const targetFile = join(cwd, '.clinerules');
+      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
+      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
+      return targetFile;
+    },
+  },
+
+  // ── Roo Code ──────────────────────────────────────────────────────────────
+  {
+    id: 'roo',
+    name: 'Roo Code',
+    icon: '🦘',
+    supportsGlobal: false,
+    async detect() {
+      const cwd = process.cwd();
+      return (
+        (await pathExists(join(cwd, '.roo'))) ||
+        (await pathExists(join(cwd, '.roorules'))) ||
+        (await pathExists(join(cwd, '.git')))
+      );
+    },
+    async installLocal(skill, cwd) {
+      const rulesDir = join(cwd, '.roo', 'rules');
+      await fs.mkdir(rulesDir, { recursive: true });
+      const targetFile = join(rulesDir, `${skill.id}.md`);
+      await fs.writeFile(targetFile, skill.content, 'utf-8');
+      return targetFile;
+    },
+  },
+
+  // ── Kilo Code ─────────────────────────────────────────────────────────────
+  {
+    id: 'kilo',
+    name: 'Kilo Code',
+    icon: '🔢',
+    supportsGlobal: false,
+    async detect() {
+      const cwd = process.cwd();
+      return (await pathExists(join(cwd, '.kilocode'))) || (await pathExists(join(cwd, '.git')));
+    },
+    async installLocal(skill, cwd) {
+      const rulesDir = join(cwd, '.kilocode', 'rules');
+      await fs.mkdir(rulesDir, { recursive: true });
+      const targetFile = join(rulesDir, `${skill.id}.md`);
+      await fs.writeFile(targetFile, skill.content, 'utf-8');
+      return targetFile;
+    },
+  },
+
+  // ── Aider ─────────────────────────────────────────────────────────────────
+  {
+    id: 'aider',
+    name: 'Aider',
+    icon: '🤝',
+    supportsGlobal: false,
+    async detect() {
+      const cwd = process.cwd();
+      return (
+        (await pathExists(join(cwd, 'CONVENTIONS.md'))) ||
+        (await pathExists(join(cwd, '.aider.conf.yml'))) ||
+        (await pathExists(join(cwd, '.git')))
+      );
+    },
+    async installLocal(skill, cwd) {
+      const targetFile = join(cwd, 'CONVENTIONS.md');
+      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
+      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
+      return targetFile;
+    },
+  },
+
+  // ── OpenAI Codex / Amp ────────────────────────────────────────────────────
+  {
+    id: 'codex',
+    name: 'OpenAI Codex / Amp',
+    icon: '🌀',
+    supportsGlobal: false,
+    async detect() {
+      const cwd = process.cwd();
+      return (await pathExists(join(cwd, 'AGENTS.md'))) || (await pathExists(join(cwd, '.git')));
+    },
+    async installLocal(skill, cwd) {
+      const targetFile = join(cwd, 'AGENTS.md');
+      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
+      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
+      return targetFile;
+    },
+  },
+
+  // ── GitHub Copilot ────────────────────────────────────────────────────────
   {
     id: 'copilot',
     name: 'GitHub Copilot',
@@ -161,14 +298,18 @@ async function main() {
     pc.dim('  AI Coding Agent Skill Installer')
   );
 
-  // ── Discover skills ────────────────────────────────────────────
+  // ── Discover skills + detect agents in parallel ────────────────
   const s = spinner();
-  s.start('Loading available skills...');
-  const [skills, detected, undetected] = await Promise.all([
+  s.start('Loading skills and detecting agents...');
+
+  const [skills, detectionResults] = await Promise.all([
     discoverSkills(),
-    Promise.all(AGENTS.map(a => a.detect().then(ok => ok ? a : null))).then(r => r.filter(Boolean)),
-    Promise.all(AGENTS.map(a => a.detect().then(ok => ok ? null : a))).then(r => r.filter(Boolean)),
+    Promise.all(AGENTS.map(a => a.detect().then(ok => ({ agent: a, ok })))),
   ]);
+
+  const detected = detectionResults.filter(r => r.ok).map(r => r.agent);
+  const undetected = detectionResults.filter(r => !r.ok).map(r => r.agent);
+
   s.stop(`Found ${pc.bold(skills.length)} skill${skills.length !== 1 ? 's' : ''}`);
 
   if (skills.length === 0) {
@@ -185,45 +326,47 @@ async function main() {
   );
 
   // ── Select skills (multi-select) ───────────────────────────────
-  const skillChoices = skills.map(sk => ({
-    value: sk.id,
-    label: pc.bold(sk.name),
-    hint: sk.description || sk.id,
-  }));
-
   const selectedSkillIds = await multiselect({
     message: 'Select skills to install: (space to toggle, enter to confirm)',
-    options: skillChoices,
+    options: skills.map(sk => ({
+      value: sk.id,
+      label: pc.bold(sk.name),
+      hint: sk.description || sk.id,
+    })),
     required: true,
   });
 
   if (isCancel(selectedSkillIds)) { cancel('Cancelled.'); process.exit(0); }
-
   const selectedSkills = skills.filter(sk => selectedSkillIds.includes(sk.id));
 
   // ── Select agent ───────────────────────────────────────────────
-  const agentChoices = [
-    ...detected.map(a => ({ value: a.id, label: `${pc.green('✓')} ${a.icon} ${a.name}`, hint: pc.green('detected') })),
-    ...undetected.map(a => ({ value: a.id, label: `${pc.dim('○')} ${pc.dim(a.icon + ' ' + a.name)}`, hint: pc.dim('not detected') })),
-  ];
-
   const selectedAgentId = await select({
     message: 'Select target agent:',
-    options: agentChoices,
+    options: [
+      ...detected.map(a => ({
+        value: a.id,
+        label: `${pc.green('✓')} ${a.icon} ${a.name}`,
+        hint: pc.green('detected'),
+      })),
+      ...undetected.map(a => ({
+        value: a.id,
+        label: `${pc.dim('○')} ${pc.dim(a.icon + ' ' + a.name)}`,
+        hint: pc.dim('not detected'),
+      })),
+    ],
   });
 
   if (isCancel(selectedAgentId)) { cancel('Cancelled.'); process.exit(0); }
-
   const agent = AGENTS.find(a => a.id === selectedAgentId);
 
-  // ── Select scope (Gemini only) ─────────────────────────────────
+  // ── Select scope (agents that support global) ──────────────────
   let scope = 'local';
   if (agent.supportsGlobal) {
     const scopeChoice = await select({
       message: 'Select install scope:',
       options: [
-        { value: 'global', label: pc.bold('🌍  Global'), hint: `~/.gemini/config/skills/  (all projects)` },
-        { value: 'local',  label: pc.bold('📁  Local'),  hint: `.agents/skills/  (this workspace only)` },
+        { value: 'global', label: pc.bold('🌍  Global'), hint: 'available in all projects' },
+        { value: 'local',  label: pc.bold('📁  Local'),  hint: 'this workspace only' },
       ],
     });
     if (isCancel(scopeChoice)) { cancel('Cancelled.'); process.exit(0); }
@@ -252,13 +395,15 @@ async function main() {
   installSpinner.stop('Installation complete');
 
   // ── Summary ────────────────────────────────────────────────────
-  const lines = results.map(r =>
-    r.ok
-      ? `${pc.green('✔')}  ${pc.bold(r.skill.name)}\n   ${pc.dim(r.path)}`
-      : `${pc.red('✖')}  ${pc.bold(r.skill.name)} — ${pc.red(r.error)}`
-  );
   note(
-    lines.join('\n\n') + `\n\n${pc.dim('Restart your agent to load the new skills.')}`,
+    results
+      .map(r =>
+        r.ok
+          ? `${pc.green('✔')}  ${pc.bold(r.skill.name)}\n   ${pc.dim(r.path)}`
+          : `${pc.red('✖')}  ${pc.bold(r.skill.name)} — ${pc.red(r.error)}`
+      )
+      .join('\n\n') +
+      `\n\n${pc.dim('Restart your agent to load the new skills.')}`,
     `Installed to ${agent.icon} ${agent.name} (${scope})`
   );
 
