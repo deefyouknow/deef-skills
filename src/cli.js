@@ -37,6 +37,49 @@ async function copyDir(src, dest) {
   }
 }
 
+async function installLocalSkillBundle(skill, cwd) {
+  const dest = join(cwd, '.agents', 'skills', skill.id);
+  await copyDir(skill.dir, dest);
+  return dest;
+}
+
+async function installGlobalSkillBundle(skill) {
+  const dest = join(homedir(), '.agents', 'skills', skill.id);
+  await copyDir(skill.dir, dest);
+  return dest;
+}
+
+function skillLoader(skill, skillPath) {
+  const trigger = skill.description ? `Use when: ${skill.description}` : `Use when this skill is relevant.`;
+  return `# Skill: ${skill.name}\n\n${trigger}\n\nWhen applicable, read and follow \`${skillPath}\`. Resolve relative references from that skill directory.`;
+}
+
+function localSkillEntrypoint(skill) {
+  return `.agents/skills/${skill.id}/SKILL.md`;
+}
+
+function globalSkillEntrypoint(skill) {
+  return join(homedir(), '.agents', 'skills', skill.id, 'SKILL.md').replaceAll('\\', '/');
+}
+
+async function installInjectedLocalSkill(skill, cwd, targetFile) {
+  await installLocalSkillBundle(skill, cwd);
+  await fs.mkdir(dirname(targetFile), { recursive: true });
+  const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
+  const loader = skillLoader(skill, localSkillEntrypoint(skill));
+  await fs.writeFile(targetFile, injectSkillBlock(existing, loader, skill.id), 'utf-8');
+  return targetFile;
+}
+
+async function installInjectedGlobalSkill(skill, targetFile) {
+  await installGlobalSkillBundle(skill);
+  await fs.mkdir(dirname(targetFile), { recursive: true });
+  const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
+  const loader = skillLoader(skill, globalSkillEntrypoint(skill));
+  await fs.writeFile(targetFile, injectSkillBlock(existing, loader, skill.id), 'utf-8');
+  return targetFile;
+}
+
 function injectSkillBlock(existing, skillContent, skillName) {
   const s = `<!-- agent-skill-start: ${skillName} -->`;
   const e = `<!-- agent-skill-end: ${skillName} -->`;
@@ -72,7 +115,7 @@ async function discoverSkills() {
     }
     skills.push({ id: entry.name, name, description, dir: skillDir, content });
   }
-  return skills;
+  return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ─── Agent Definitions ───────────────────────────────────────────────────────
@@ -84,16 +127,17 @@ const AGENTS = [
     name: 'Gemini / Antigravity',
     icon: '🔮',
     supportsGlobal: true,
-    async detect() { return pathExists(join(homedir(), '.gemini')); },
+    async detect() {
+      const cwd = process.cwd();
+      return (await pathExists(join(homedir(), '.gemini'))) || (await pathExists(join(cwd, '.gemini')));
+    },
     async installGlobal(skill) {
       const dest = join(homedir(), '.gemini', 'config', 'skills', skill.id);
       await copyDir(skill.dir, dest);
       return dest;
     },
     async installLocal(skill, cwd) {
-      const dest = join(cwd, '.agents', 'skills', skill.id);
-      await copyDir(skill.dir, dest);
-      return dest;
+      return installLocalSkillBundle(skill, cwd);
     },
   },
 
@@ -105,22 +149,15 @@ const AGENTS = [
     supportsGlobal: true,
     async detect() {
       const cwd = process.cwd();
-      return (await pathExists(join(cwd, 'CLAUDE.md'))) || (await pathExists(join(cwd, '.git')));
+      return (await pathExists(join(cwd, 'CLAUDE.md'))) || (await pathExists(join(homedir(), '.claude')));
     },
     async installGlobal(skill) {
-      // Claude Code global: ~/.claude/CLAUDE.md
-      const dir = join(homedir(), '.claude');
-      await fs.mkdir(dir, { recursive: true });
-      const targetFile = join(dir, 'CLAUDE.md');
-      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
-      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
-      return targetFile;
+      const targetFile = join(homedir(), '.claude', 'CLAUDE.md');
+      return installInjectedGlobalSkill(skill, targetFile);
     },
     async installLocal(skill, cwd) {
       const targetFile = join(cwd, 'CLAUDE.md');
-      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
-      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
-      return targetFile;
+      return installInjectedLocalSkill(skill, cwd, targetFile);
     },
   },
 
@@ -132,16 +169,16 @@ const AGENTS = [
     supportsGlobal: false,
     async detect() {
       const cwd = process.cwd();
-      return (await pathExists(join(cwd, '.cursor'))) || (await pathExists(join(cwd, '.git')));
+      return pathExists(join(cwd, '.cursor'));
     },
     async installLocal(skill, cwd) {
+      await installLocalSkillBundle(skill, cwd);
       const rulesDir = join(cwd, '.cursor', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
-      const mdcContent = `---\ndescription: ${skill.name}\nglobs: \nalwaysApply: false\n---\n\n${skill.content}`;
+      const loader = skillLoader(skill, localSkillEntrypoint(skill));
+      const mdcContent = `---\ndescription: ${skill.name}\nglobs: \nalwaysApply: false\n---\n\n${loader}`;
       const targetFile = join(rulesDir, `${skill.id}.mdc`);
       await fs.writeFile(targetFile, mdcContent, 'utf-8');
-      const refsDir = join(skill.dir, 'references');
-      if (await pathExists(refsDir)) await copyDir(refsDir, join(rulesDir, `${skill.id}-references`));
       return targetFile;
     },
   },
@@ -152,20 +189,19 @@ const AGENTS = [
     name: 'Windsurf',
     icon: '🌊',
     supportsGlobal: true,
-    async detect() { return pathExists(join(homedir(), '.codeium')); },
+    async detect() {
+      const cwd = process.cwd();
+      return (await pathExists(join(homedir(), '.codeium'))) ||
+        (await pathExists(join(cwd, '.windsurfrules'))) ||
+        (await pathExists(join(cwd, '.windsurf')));
+    },
     async installGlobal(skill) {
-      const dir = join(homedir(), '.codeium', 'windsurf', 'memories');
-      await fs.mkdir(dir, { recursive: true });
-      const targetFile = join(dir, 'global_rules.md');
-      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
-      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
-      return targetFile;
+      const targetFile = join(homedir(), '.codeium', 'windsurf', 'memories', 'global_rules.md');
+      return installInjectedGlobalSkill(skill, targetFile);
     },
     async installLocal(skill, cwd) {
       const targetFile = join(cwd, '.windsurfrules');
-      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
-      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
-      return targetFile;
+      return installInjectedLocalSkill(skill, cwd, targetFile);
     },
   },
 
@@ -177,13 +213,11 @@ const AGENTS = [
     supportsGlobal: false,
     async detect() {
       const cwd = process.cwd();
-      return (await pathExists(join(cwd, '.clinerules'))) || (await pathExists(join(cwd, '.git')));
+      return (await pathExists(join(cwd, '.clinerules'))) || (await pathExists(join(cwd, '.cline')));
     },
     async installLocal(skill, cwd) {
       const targetFile = join(cwd, '.clinerules');
-      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
-      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
-      return targetFile;
+      return installInjectedLocalSkill(skill, cwd, targetFile);
     },
   },
 
@@ -197,15 +231,15 @@ const AGENTS = [
       const cwd = process.cwd();
       return (
         (await pathExists(join(cwd, '.roo'))) ||
-        (await pathExists(join(cwd, '.roorules'))) ||
-        (await pathExists(join(cwd, '.git')))
+        (await pathExists(join(cwd, '.roorules')))
       );
     },
     async installLocal(skill, cwd) {
+      await installLocalSkillBundle(skill, cwd);
       const rulesDir = join(cwd, '.roo', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
       const targetFile = join(rulesDir, `${skill.id}.md`);
-      await fs.writeFile(targetFile, skill.content, 'utf-8');
+      await fs.writeFile(targetFile, skillLoader(skill, localSkillEntrypoint(skill)), 'utf-8');
       return targetFile;
     },
   },
@@ -218,13 +252,14 @@ const AGENTS = [
     supportsGlobal: false,
     async detect() {
       const cwd = process.cwd();
-      return (await pathExists(join(cwd, '.kilocode'))) || (await pathExists(join(cwd, '.git')));
+      return pathExists(join(cwd, '.kilocode'));
     },
     async installLocal(skill, cwd) {
+      await installLocalSkillBundle(skill, cwd);
       const rulesDir = join(cwd, '.kilocode', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
       const targetFile = join(rulesDir, `${skill.id}.md`);
-      await fs.writeFile(targetFile, skill.content, 'utf-8');
+      await fs.writeFile(targetFile, skillLoader(skill, localSkillEntrypoint(skill)), 'utf-8');
       return targetFile;
     },
   },
@@ -239,15 +274,12 @@ const AGENTS = [
       const cwd = process.cwd();
       return (
         (await pathExists(join(cwd, 'CONVENTIONS.md'))) ||
-        (await pathExists(join(cwd, '.aider.conf.yml'))) ||
-        (await pathExists(join(cwd, '.git')))
+        (await pathExists(join(cwd, '.aider.conf.yml')))
       );
     },
     async installLocal(skill, cwd) {
       const targetFile = join(cwd, 'CONVENTIONS.md');
-      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
-      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
-      return targetFile;
+      return installInjectedLocalSkill(skill, cwd, targetFile);
     },
   },
 
@@ -259,13 +291,11 @@ const AGENTS = [
     supportsGlobal: false,
     async detect() {
       const cwd = process.cwd();
-      return (await pathExists(join(cwd, 'AGENTS.md'))) || (await pathExists(join(cwd, '.git')));
+      return (await pathExists(join(cwd, 'AGENTS.md'))) || (await pathExists(join(homedir(), '.codex')));
     },
     async installLocal(skill, cwd) {
       const targetFile = join(cwd, 'AGENTS.md');
-      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
-      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
-      return targetFile;
+      return installInjectedLocalSkill(skill, cwd, targetFile);
     },
   },
 
@@ -277,14 +307,11 @@ const AGENTS = [
     supportsGlobal: false,
     async detect() {
       const cwd = process.cwd();
-      return (await pathExists(join(cwd, '.github'))) || (await pathExists(join(cwd, '.git')));
+      return pathExists(join(cwd, '.github', 'copilot-instructions.md'));
     },
     async installLocal(skill, cwd) {
-      await fs.mkdir(join(cwd, '.github'), { recursive: true });
       const targetFile = join(cwd, '.github', 'copilot-instructions.md');
-      const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
-      await fs.writeFile(targetFile, injectSkillBlock(existing, skill.content, skill.id), 'utf-8');
-      return targetFile;
+      return installInjectedLocalSkill(skill, cwd, targetFile);
     },
   },
 ];

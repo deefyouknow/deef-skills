@@ -1,44 +1,56 @@
-# deef-skills
+# Deef Skills
 
-Agent skills loaded by Gemini, Cursor, Claude Code, and GitHub Copilot.
+Choose and install ready-to-use skills for Gemini, Claude Code, Cursor, Windsurf, Cline, Roo Code, Kilo Code, Aider, OpenAI Codex, or GitHub Copilot.
 
-## Layout
+## Quick install
 
-Skills live under `skills/`, grouped into buckets:
+Requirements: Node.js 18 or newer and npm.
 
-- `engineering/` — system design, backend, database, embedded, security
-- `productivity/` — non-code workflow tools *(coming soon)*
-- `in-progress/` — drafts not yet ready to ship
-
-Each skill is its own directory containing a `SKILL.md` (with YAML frontmatter — `name` and `description`) and any bundled reference files.
-
-## Install
-
-**With npx (works for every agent)**
+Run this from the project where you want to use the skill:
 
 ```bash
-npx github:deefyouknow/deef-skills
+npx --yes github:deefyouknow/deef-skills
 ```
 
-The interactive installer detects your agents, lets you pick which skills to install, and copies everything to the right location automatically.
+The installer lists available skills in alphabetical order, detects agent configuration when it can, and lets you choose a skill, target agent, and install scope. Detection is a convenience; you can still select an agent that was not detected. Restart the agent after installation so it reloads its instructions.
 
-**Supported agents**
+Choose **Local** to keep a bundle in the current project or **Global** to make it available across projects when the selected agent supports that scope. Agent instruction files point to the installed skill bundle, so its references and scripts remain available. Reinstalling updates files supplied by the skill and preserves additional files in the installed skill directory.
 
-| Agent | Install location |
-|-------|-----------------|
-| 🔮 Gemini / Antigravity | `~/.gemini/config/skills/` (global) or `.agents/skills/` (local) |
-| 🤖 Claude Code | `~/.claude/CLAUDE.md` (global) or `CLAUDE.md` (local) |
-| 🖱️ Cursor | `.cursor/rules/<skill>.mdc` |
-| 🌊 Windsurf | `~/.codeium/windsurf/memories/global_rules.md` (global) or `.windsurfrules` (local) |
-| ⚡ Cline | `.clinerules` |
-| 🦘 Roo Code | `.roo/rules/<skill>.md` |
-| 🔢 Kilo Code | `.kilocode/rules/<skill>.md` |
-| 🤝 Aider | `CONVENTIONS.md` |
-| 🌀 OpenAI Codex / Amp | `AGENTS.md` |
-| 🐙 GitHub Copilot | `.github/copilot-instructions.md` |
+## Available skills
 
-## Reference
+| Skill | Use it for |
+| --- | --- |
+| `coding-style` | Consistent, maintainable code across languages |
+| `deef-setup-agent` | Project agent instructions and task-based file navigation |
+| `minecraft-bedrock-native-macos-arm64` | Running and repairing native Bedrock on Apple Silicon with the custom runtime |
+| `readable-markdown` | Making raw Markdown files easier to read in an editor or terminal |
+| `react-tailwind-ui-system` | Reusable React and Tailwind interface design |
+| `system-architecture` | System design, backend, databases, embedded work, testing, and API security |
 
-### Engineering
+The installer discovers skills from folders directly under `skills/` that contain a `SKILL.md`. Each skill can include its own references, templates, and scripts.
 
-- **system-architecture** — Deep-dive reference for fast, maintainable systems. Covers clean code/SOLID, backend runtime selection (Rust/Axum, Go, Node+Fastify), PostgreSQL pooling with PgBouncer, Redis caching and stampede prevention, frontend Atomic Design, ESP32/Arduino embedded firmware, testing strategy, CI/CD pipelines, and API security.
+## Supported agents
+
+| Agent | Local instruction entrypoint |
+| --- | --- |
+| Gemini / Antigravity | `.agents/skills/` bundle |
+| Claude Code | `CLAUDE.md` |
+| Cursor | `.cursor/rules/<skill>.mdc` |
+| Windsurf | `.windsurfrules` |
+| Cline | `.clinerules` |
+| Roo Code | `.roo/rules/<skill>.md` |
+| Kilo Code | `.kilocode/rules/<skill>.md` |
+| Aider | `CONVENTIONS.md` |
+| OpenAI Codex / Amp | `AGENTS.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
+
+## Run from a clone
+
+```bash
+npm install
+npm start
+```
+
+## Add a skill
+
+Create `skills/<skill-id>/SKILL.md` with `name` and `description` frontmatter. Put supporting references, templates, or scripts inside that skill's folder. The installer picks it up automatically; add it to the table above so people can choose confidently. Preview the distributable bundle with `npm pack --dry-run`.

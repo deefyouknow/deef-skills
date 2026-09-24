@@ -1,0 +1,5 @@
+#!/bin/zsh
+set -e
+
+export ZDOTDIR="$HOME/.minecraft-native"
+exec /bin/zsh -i

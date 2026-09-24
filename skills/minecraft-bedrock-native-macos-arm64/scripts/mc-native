@@ -1,0 +1,120 @@
+#!/bin/zsh
+set -u
+
+CUSTOM="$HOME/Library/Application Support/Minecraft Bedrock Launcher/Runtime-Native"
+CLIENT="$CUSTOM/bin/mcpelauncher-client"
+DATA="$HOME/Library/Application Support/mcpelauncher"
+GAME="$DATA/versions/1.26.51.1"
+LOGDIR="$HOME/Library/Logs/Minecraft Bedrock Native"
+CLIENT_PATTERN='Runtime-Native/bin/mcpelauncher-client'
+LAUNCHER_PATTERN='Minecraft Bedrock Launcher Legacy.app|QtWebEngineProcess.*Minecraft Bedrock Launcher Legacy.app'
+child_pid=""
+
+stop_clients() {
+  local pid
+  for pid in ${(f)"$(pgrep -f "$CLIENT_PATTERN" 2>/dev/null)"}; do
+    [[ -z "$pid" || "$pid" == "$$" ]] && continue
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  sleep 0.5
+  for pid in ${(f)"$(pgrep -f "$CLIENT_PATTERN" 2>/dev/null)"}; do
+    [[ -z "$pid" || "$pid" == "$$" ]] && continue
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+}
+
+stop_launcher_leftovers() {
+  local pid
+  for pid in ${(f)"$(pgrep -f "$LAUNCHER_PATTERN" 2>/dev/null)"}; do
+    [[ -z "$pid" || "$pid" == "$$" ]] && continue
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+}
+cleanup() {
+  if [[ -n "$child_pid" ]]; then
+    kill -INT "$child_pid" 2>/dev/null || true
+    sleep 0.5
+  fi
+  stop_clients
+  stop_launcher_leftovers
+}
+
+case "${1:-run}" in
+  --help|-h)
+    echo "Usage: mc-native [run|debug|status|stop]"
+    echo "  run    Launch Minecraft normally (default)"
+    echo "  debug  Launch with timestamped client log and network/runtime diagnostics"
+    echo "  status Show matching client and launcher processes"
+    echo "  stop   Stop client and launcher leftovers"
+    exit 0
+    ;;
+  stop|clean)
+    stop_clients
+    stop_launcher_leftovers
+    echo "Minecraft Native + launcher leftovers cleaned."
+    exit 0
+    ;;
+  status)
+    echo "== Native client =="
+    pgrep -af "$CLIENT_PATTERN" || echo "not running"
+    echo "== Launcher leftovers =="
+    pgrep -af "$LAUNCHER_PATTERN" || echo "none"
+    exit 0
+    ;;
+esac
+
+debug_mode=0
+if [[ "${1:-run}" == debug ]]; then
+  debug_mode=1
+fi
+
+[[ -x "$CLIENT" ]] || { echo "Missing runtime: $CLIENT" >&2; exit 1; }
+[[ -d "$GAME" ]] || { echo "Missing game version: $GAME" >&2; exit 1; }
+mkdir -p "$LOGDIR"
+find "$LOGDIR" -type f -name '*.log' -mtime +7 -delete 2>/dev/null || true
+stop_clients
+trap cleanup INT TERM EXIT
+export XDG_DATA_DIRS="$CUSTOM/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+export DYLD_LIBRARY_PATH="$CUSTOM/Frameworks/mvk-angle"
+export SDL_AUDIODRIVER=coreaudio
+export AUDIO_SAMPLE_RATE=48000
+
+LOGFILE="$LOGDIR/$(date +%Y%m%d-%H%M%S).log"
+echo "Minecraft Bedrock Native 1.26.51.1"
+echo "Ctrl+C = stop game + clean leftover client processes"
+echo "Log: $LOGFILE"
+
+if (( debug_mode )); then
+  {
+    echo "===== mc-native diagnostic snapshot $(date '+%Y-%m-%d %H:%M:%S %Z') ====="
+    echo "macOS: $(sw_vers -productVersion 2>/dev/null || echo unknown)"
+    echo "Architecture: $(uname -m)"
+    echo "Client: $CLIENT"
+    echo "Game data: $GAME"
+    echo "Relevant routes/interfaces (no addresses beyond local network metadata):"
+    route -n get default 2>&1 | head -12 || true
+    ifconfig 2>/dev/null | awk '/^[a-zA-Z0-9]+:/{iface=$1} /inet /{print iface, $0}' | head -20
+    if [[ -n "${MINECRAFT_DEBUG_HOSTS:-}" ]]; then
+      echo "DNS answers:"
+      for host in ${(z)MINECRAFT_DEBUG_HOSTS}; do
+        echo "-- $host"
+        dscacheutil -q host -a name "$host" 2>&1 | head -8 || true
+      done
+    fi
+    echo "VPN connections:"
+    scutil --nc list 2>&1 | head -20 || true
+    echo "===== end diagnostic snapshot ====="
+  } | tee -a "$LOGFILE"
+fi
+
+cd "$CUSTOM/bin" || exit 1
+"$CLIENT" --disable-fmod -fes -dd "$DATA" -dg "$GAME" 2>&1 \
+  | awk '!/Image failed to load from memory[[:space:]]+Reason: unknown image type/ { print; fflush() }' \
+  | tee -a "$LOGFILE" &
+child_pid=$!
+wait "$child_pid"
+status=$?
+child_pid=""
+trap - EXIT
+stop_clients
+exit "$status"

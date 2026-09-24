@@ -1,7 +1,7 @@
 {
   "name": "deef-skills",
   "version": "1.0.0",
-  "description": "Engineering skill packs for AI coding agents (Gemini, Cursor, Claude Code, Copilot) — interactive installer included.",
+  "description": "Install reusable AI agent skills for Gemini, Claude Code, Cursor, Windsurf, Cline, Roo, Kilo, Aider, Codex, and Copilot.",
   "type": "module",
   "bin": {
     "deef-skills": "./bin/cli.js"
@@ -32,6 +32,14 @@
   ],
   "author": "Thanawat",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deefyouknow/deef-skills.git"
+  },
+  "homepage": "https://github.com/deefyouknow/deef-skills#readme",
+  "bugs": {
+    "url": "https://github.com/deefyouknow/deef-skills/issues"
+  },
   "engines": {
     "node": ">=18"
   }
