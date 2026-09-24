@@ -396,17 +396,22 @@ async function main() {
     const scopeChoice = await select({
       message: 'Select install scope:',
       options: [
-        { value: 'global', label: pc.bold('🌍  Global'), hint: 'available in all projects' },
-        { value: 'local',  label: pc.bold('📁  Local'),  hint: 'this workspace only' },
+        { value: 'global', label: pc.bold('🌍  Global'), hint: 'available across projects' },
+        { value: 'local',  label: pc.bold('📁  Local'),  hint: 'this project only' },
       ],
     });
     if (isCancel(scopeChoice)) { cancel('Cancelled.'); process.exit(0); }
     scope = scopeChoice;
   }
 
+  const scopeLabel = scope === 'global'
+    ? 'Global — available across projects'
+    : `Local — this project only (${process.cwd()})`;
+  note(scopeLabel, 'Install scope');
+
   // ── Install all selected skills ────────────────────────────────
   const installSpinner = spinner();
-  installSpinner.start(`Installing or updating ${selectedSkills.length} skill${selectedSkills.length > 1 ? 's' : ''} for ${agent.name}...`);
+  installSpinner.start(`Installing or updating ${selectedSkills.length} skill${selectedSkills.length > 1 ? 's' : ''} in ${scopeLabel}...`);
 
   const results = [];
   for (const skill of selectedSkills) {
@@ -435,7 +440,7 @@ async function main() {
       )
       .join('\n\n') +
       `\n\n${pc.dim('Restart your agent to load the new skills.')}`,
-    `Skills for ${agent.icon} ${agent.name} (${scope})`
+    `Skills for ${agent.icon} ${agent.name} — ${scopeLabel}`
   );
 
   const failed = results.filter(r => !r.ok);

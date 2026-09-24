@@ -14,7 +14,7 @@ npx github:deefyouknow/deef-skills
 
 The installer lists available skills in alphabetical order, detects agent configuration when it can, and lets you choose a skill, target agent, and install scope. Detection is a convenience; you can still select an agent that was not detected. Restart the agent after installation so it reloads its instructions.
 
-Choose **Local** to keep a bundle in the current project or **Global** to make it available across projects when the selected agent supports that scope. Agent instruction files point to the installed skill bundle, so its references and scripts remain available. Running the installer again replaces an existing skill with the current bundle and labels it **Updated**. This removes custom files stored inside that skill's install folder.
+Choose **Local — this project only** to keep a bundle in the current project or **Global — available across projects** when the selected agent supports that scope. The installer shows the chosen scope before it writes files; some agents support Local only. Agent instruction files point to the installed skill bundle, so its references and scripts remain available. Running the installer again replaces an existing skill with the current bundle and labels it **Updated**. This removes custom files stored inside that skill's install folder.
 
 ## Available skills
 
