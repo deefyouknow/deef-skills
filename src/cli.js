@@ -37,16 +37,21 @@ async function copyDir(src, dest) {
   }
 }
 
+async function replaceDir(src, dest) {
+  const updated = await pathExists(dest);
+  await fs.rm(dest, { recursive: true, force: true });
+  await copyDir(src, dest);
+  return { path: dest, updated };
+}
+
 async function installLocalSkillBundle(skill, cwd) {
   const dest = join(cwd, '.agents', 'skills', skill.id);
-  await copyDir(skill.dir, dest);
-  return dest;
+  return replaceDir(skill.dir, dest);
 }
 
 async function installGlobalSkillBundle(skill) {
   const dest = join(homedir(), '.agents', 'skills', skill.id);
-  await copyDir(skill.dir, dest);
-  return dest;
+  return replaceDir(skill.dir, dest);
 }
 
 function skillLoader(skill, skillPath) {
@@ -63,21 +68,21 @@ function globalSkillEntrypoint(skill) {
 }
 
 async function installInjectedLocalSkill(skill, cwd, targetFile) {
-  await installLocalSkillBundle(skill, cwd);
+  const installation = await installLocalSkillBundle(skill, cwd);
   await fs.mkdir(dirname(targetFile), { recursive: true });
   const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
   const loader = skillLoader(skill, localSkillEntrypoint(skill));
   await fs.writeFile(targetFile, injectSkillBlock(existing, loader, skill.id), 'utf-8');
-  return targetFile;
+  return { ...installation, path: targetFile };
 }
 
 async function installInjectedGlobalSkill(skill, targetFile) {
-  await installGlobalSkillBundle(skill);
+  const installation = await installGlobalSkillBundle(skill);
   await fs.mkdir(dirname(targetFile), { recursive: true });
   const existing = (await pathExists(targetFile)) ? await fs.readFile(targetFile, 'utf-8') : '';
   const loader = skillLoader(skill, globalSkillEntrypoint(skill));
   await fs.writeFile(targetFile, injectSkillBlock(existing, loader, skill.id), 'utf-8');
-  return targetFile;
+  return { ...installation, path: targetFile };
 }
 
 function injectSkillBlock(existing, skillContent, skillName) {
@@ -133,8 +138,7 @@ const AGENTS = [
     },
     async installGlobal(skill) {
       const dest = join(homedir(), '.gemini', 'config', 'skills', skill.id);
-      await copyDir(skill.dir, dest);
-      return dest;
+      return replaceDir(skill.dir, dest);
     },
     async installLocal(skill, cwd) {
       return installLocalSkillBundle(skill, cwd);
@@ -172,14 +176,14 @@ const AGENTS = [
       return pathExists(join(cwd, '.cursor'));
     },
     async installLocal(skill, cwd) {
-      await installLocalSkillBundle(skill, cwd);
+      const installation = await installLocalSkillBundle(skill, cwd);
       const rulesDir = join(cwd, '.cursor', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
       const loader = skillLoader(skill, localSkillEntrypoint(skill));
       const mdcContent = `---\ndescription: ${skill.name}\nglobs: \nalwaysApply: false\n---\n\n${loader}`;
       const targetFile = join(rulesDir, `${skill.id}.mdc`);
       await fs.writeFile(targetFile, mdcContent, 'utf-8');
-      return targetFile;
+      return { ...installation, path: targetFile };
     },
   },
 
@@ -235,12 +239,12 @@ const AGENTS = [
       );
     },
     async installLocal(skill, cwd) {
-      await installLocalSkillBundle(skill, cwd);
+      const installation = await installLocalSkillBundle(skill, cwd);
       const rulesDir = join(cwd, '.roo', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
       const targetFile = join(rulesDir, `${skill.id}.md`);
       await fs.writeFile(targetFile, skillLoader(skill, localSkillEntrypoint(skill)), 'utf-8');
-      return targetFile;
+      return { ...installation, path: targetFile };
     },
   },
 
@@ -255,12 +259,12 @@ const AGENTS = [
       return pathExists(join(cwd, '.kilocode'));
     },
     async installLocal(skill, cwd) {
-      await installLocalSkillBundle(skill, cwd);
+      const installation = await installLocalSkillBundle(skill, cwd);
       const rulesDir = join(cwd, '.kilocode', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
       const targetFile = join(rulesDir, `${skill.id}.md`);
       await fs.writeFile(targetFile, skillLoader(skill, localSkillEntrypoint(skill)), 'utf-8');
-      return targetFile;
+      return { ...installation, path: targetFile };
     },
   },
 
@@ -402,18 +406,18 @@ async function main() {
 
   // ── Install all selected skills ────────────────────────────────
   const installSpinner = spinner();
-  installSpinner.start(`Installing ${selectedSkills.length} skill${selectedSkills.length > 1 ? 's' : ''} to ${agent.name}...`);
+  installSpinner.start(`Installing or updating ${selectedSkills.length} skill${selectedSkills.length > 1 ? 's' : ''} for ${agent.name}...`);
 
   const results = [];
   for (const skill of selectedSkills) {
     try {
-      let path;
+      let installation;
       if (scope === 'global' && agent.installGlobal) {
-        path = await agent.installGlobal(skill);
+        installation = await agent.installGlobal(skill);
       } else {
-        path = await agent.installLocal(skill, process.cwd());
+        installation = await agent.installLocal(skill, process.cwd());
       }
-      results.push({ skill, path, ok: true });
+      results.push({ skill, ...installation, ok: true });
     } catch (err) {
       results.push({ skill, error: err.message, ok: false });
     }
@@ -426,12 +430,12 @@ async function main() {
     results
       .map(r =>
         r.ok
-          ? `${pc.green('✔')}  ${pc.bold(r.skill.name)}\n   ${pc.dim(r.path)}`
+          ? `${r.updated ? pc.cyan('↻ Updated') : pc.green('✔ Installed')}  ${pc.bold(r.skill.name)}\n   ${pc.dim(r.path)}`
           : `${pc.red('✖')}  ${pc.bold(r.skill.name)} — ${pc.red(r.error)}`
       )
       .join('\n\n') +
       `\n\n${pc.dim('Restart your agent to load the new skills.')}`,
-    `Installed to ${agent.icon} ${agent.name} (${scope})`
+    `Skills for ${agent.icon} ${agent.name} (${scope})`
   );
 
   const failed = results.filter(r => !r.ok);
@@ -439,7 +443,7 @@ async function main() {
     outro(pc.yellow(`⚠️  Done with ${failed.length} error(s).`));
     process.exit(1);
   } else {
-    outro(pc.green(`🎉  All ${results.length} skill${results.length > 1 ? 's' : ''} installed successfully!`));
+    outro(pc.green(`🎉  All ${results.length} skill${results.length > 1 ? 's were' : ' was'} installed or updated successfully!`));
   }
 }
 
