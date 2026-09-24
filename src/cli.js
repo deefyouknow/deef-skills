@@ -3,6 +3,7 @@ import {
   outro,
   select,
   multiselect,
+  confirm,
   spinner,
   isCancel,
   cancel,
@@ -65,6 +66,179 @@ function localSkillEntrypoint(skill) {
 
 function globalSkillEntrypoint(skill) {
   return join(homedir(), '.agents', 'skills', skill.id, 'SKILL.md').replaceAll('\\', '/');
+}
+
+function skillBundlePath(skill, agent, cwd, scope) {
+  if (scope === 'global' && agent.id === 'gemini') {
+    return join(homedir(), '.gemini', 'config', 'skills', skill.id);
+  }
+  if (scope === 'global') return join(homedir(), '.agents', 'skills', skill.id);
+  return join(cwd, '.agents', 'skills', skill.id);
+}
+
+function instructionFilePath(skill, agent, cwd, scope) {
+  if (agent.id === 'gemini') return null;
+  if (agent.id === 'claude') return scope === 'global'
+    ? join(homedir(), '.claude', 'CLAUDE.md')
+    : join(cwd, 'CLAUDE.md');
+  if (agent.id === 'cursor') return join(cwd, '.cursor', 'rules', `${skill.id}.mdc`);
+  if (agent.id === 'windsurf') return scope === 'global'
+    ? join(homedir(), '.codeium', 'windsurf', 'memories', 'global_rules.md')
+    : join(cwd, '.windsurfrules');
+  if (agent.id === 'cline') return join(cwd, '.clinerules');
+  if (agent.id === 'roo') return join(cwd, '.roo', 'rules', `${skill.id}.md`);
+  if (agent.id === 'kilo') return join(cwd, '.kilocode', 'rules', `${skill.id}.md`);
+  if (agent.id === 'aider') return join(cwd, 'CONVENTIONS.md');
+  if (agent.id === 'codex') return join(cwd, 'AGENTS.md');
+  if (agent.id === 'copilot') return join(cwd, '.github', 'copilot-instructions.md');
+  return null;
+}
+
+function skillLoaderForScope(skill, scope) {
+  return skillLoader(skill, scope === 'global'
+    ? globalSkillEntrypoint(skill)
+    : localSkillEntrypoint(skill));
+}
+
+function removeSkillLoader(content, skill, scope) {
+  const start = `<!-- agent-skill-start: ${skill.id} -->`;
+  const end = `<!-- agent-skill-end: ${skill.id} -->`;
+  const startAt = content.indexOf(start);
+  const endAt = startAt < 0 ? -1 : content.indexOf(end, startAt + start.length);
+  let remaining = content;
+
+  if (startAt >= 0 && endAt >= 0) {
+    const before = content.slice(0, startAt).trimEnd();
+    const after = content.slice(endAt + end.length).trimStart();
+    remaining = before && after ? `${before}\n\n${after}` : before || after;
+    return { removed: true, content: remaining };
+  }
+
+  const legacyLoader = skillLoaderForScope(skill, scope);
+  const trimmed = content.trim();
+  const cursorLegacy = `${cursorRuleHeader(skill)}\n\n${legacyLoader}`;
+  if (trimmed === legacyLoader) return { removed: true, content: '' };
+  if (trimmed === cursorLegacy) return { removed: true, content: cursorRuleHeader(skill) };
+  if (trimmed.startsWith(cursorRuleHeader(skill) + '\n\n')) {
+    const header = cursorRuleHeader(skill);
+    const prefixLength = header.length + 2;
+    if (trimmed.startsWith(legacyLoader, prefixLength)) {
+      const after = trimmed.slice(prefixLength + legacyLoader.length);
+      if (!after || after.startsWith('\n')) {
+        return {
+          removed: true,
+          content: after.trim() ? `${header}\n\n${after.trim()}` : header,
+        };
+      }
+    }
+  }
+  if (trimmed.startsWith(legacyLoader)) {
+    const after = trimmed.slice(legacyLoader.length);
+    if (!after || after.startsWith('\n')) {
+      return { removed: true, content: after.trim() };
+    }
+  }
+  return { removed: false, content };
+}
+
+function cursorRuleHeader(skill) {
+  return `---\ndescription: ${skill.name}\nglobs: \nalwaysApply: false\n---`;
+}
+
+async function isSkillInstalled(skill, agent, cwd, scope) {
+  if (!(await pathExists(skillBundlePath(skill, agent, cwd, scope)))) return false;
+  if (agent.id === 'gemini') return true;
+  const target = instructionFilePath(skill, agent, cwd, scope);
+  if (!target || !(await pathExists(target))) return false;
+  const content = await fs.readFile(target, 'utf-8');
+  const start = `<!-- agent-skill-start: ${skill.id} -->`;
+  return content.includes(start) || removeSkillLoader(content, skill, scope).removed;
+}
+
+async function installedSkillsFor(agent, cwd, scope, catalog) {
+  const bundlePath = skillBundlePath({ id: '' }, agent, cwd, scope);
+  const bundleRoot = dirname(bundlePath);
+  const installed = new Map();
+
+  if (await pathExists(bundleRoot)) {
+    const entries = await fs.readdir(bundleRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const id = entry.name;
+      const path = join(bundleRoot, id);
+      const skillFile = join(path, 'SKILL.md');
+      if (!(await pathExists(skillFile))) continue;
+      const known = catalog.find(skill => skill.id === id);
+      const content = await fs.readFile(skillFile, 'utf-8');
+      const fm = content.match(/^---\r?\n([\s\S]+?)\r?\n---/);
+      const lines = fm?.[1].split('\n') ?? [];
+      const nameLine = lines.find(line => line.startsWith('name:'));
+      const descLine = lines.find(line => line.startsWith('description:'));
+      const name = known?.name ?? nameLine?.replace('name:', '').trim() ?? id;
+      const description = known?.description ?? (descLine
+        ? descLine.replace('description:', '').trim().slice(0, 80) + '…'
+        : '');
+      const skill = known ?? { id, name, description, dir: path, content };
+      if (agent.id === 'gemini' || await isSkillInstalled(skill, agent, cwd, scope)) {
+        installed.set(id, skill);
+      }
+    }
+  }
+
+  for (const skill of catalog) {
+    if (!installed.has(skill.id) && await isSkillInstalled(skill, agent, cwd, scope)) {
+      installed.set(skill.id, skill);
+    }
+  }
+
+  return [...installed.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function hasOtherBundleReferences(skill, agent, cwd, scope) {
+  const targetBundle = skillBundlePath(skill, agent, cwd, scope);
+  for (const otherAgent of AGENTS) {
+    if (otherAgent.id === agent.id) continue;
+    if (skillBundlePath(skill, otherAgent, cwd, scope) !== targetBundle) continue;
+    if (scope === 'local' && otherAgent.id === 'gemini') return true;
+    const target = instructionFilePath(skill, otherAgent, cwd, scope);
+    if (!target || !(await pathExists(target))) continue;
+    const content = await fs.readFile(target, 'utf-8');
+    if (removeSkillLoader(content, skill, scope).removed) return true;
+    const start = `<!-- agent-skill-start: ${skill.id} -->`;
+    if (content.includes(start)) return true;
+  }
+  return false;
+}
+
+async function uninstallSkill(skill, agent, cwd, scope) {
+  const bundlePath = skillBundlePath(skill, agent, cwd, scope);
+  const removed = [];
+
+  const target = instructionFilePath(skill, agent, cwd, scope);
+  let warning;
+  if (target && await pathExists(target)) {
+    const original = await fs.readFile(target, 'utf-8');
+    const result = removeSkillLoader(original, skill, scope);
+    if (result.removed) {
+      const generatedCursorHeader = cursorRuleHeader(skill);
+      const content = result.content.trim() === generatedCursorHeader
+        ? ''
+        : result.content;
+      if (content.trim()) await fs.writeFile(target, content, 'utf-8');
+      else await fs.rm(target, { force: true });
+      removed.push(target);
+    } else {
+      warning = `Could not identify a DEEF loader in ${target}; left that file unchanged.`;
+    }
+  }
+
+  const shared = await hasOtherBundleReferences(skill, agent, cwd, scope);
+  if (await pathExists(bundlePath) && !shared && !warning) {
+    await fs.rm(bundlePath, { recursive: true, force: true });
+    removed.push(bundlePath);
+  }
+
+  return { removed, warning, shared };
 }
 
 async function installInjectedLocalSkill(skill, cwd, targetFile) {
@@ -180,7 +354,7 @@ const AGENTS = [
       const rulesDir = join(cwd, '.cursor', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
       const loader = skillLoader(skill, localSkillEntrypoint(skill));
-      const mdcContent = `---\ndescription: ${skill.name}\nglobs: \nalwaysApply: false\n---\n\n${loader}`;
+      const mdcContent = `${cursorRuleHeader(skill)}\n\n${injectSkillBlock('', loader, skill.id)}`;
       const targetFile = join(rulesDir, `${skill.id}.mdc`);
       await fs.writeFile(targetFile, mdcContent, 'utf-8');
       return { ...installation, path: targetFile };
@@ -243,7 +417,7 @@ const AGENTS = [
       const rulesDir = join(cwd, '.roo', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
       const targetFile = join(rulesDir, `${skill.id}.md`);
-      await fs.writeFile(targetFile, skillLoader(skill, localSkillEntrypoint(skill)), 'utf-8');
+      await fs.writeFile(targetFile, injectSkillBlock('', skillLoader(skill, localSkillEntrypoint(skill)), skill.id), 'utf-8');
       return { ...installation, path: targetFile };
     },
   },
@@ -263,7 +437,7 @@ const AGENTS = [
       const rulesDir = join(cwd, '.kilocode', 'rules');
       await fs.mkdir(rulesDir, { recursive: true });
       const targetFile = join(rulesDir, `${skill.id}.md`);
-      await fs.writeFile(targetFile, skillLoader(skill, localSkillEntrypoint(skill)), 'utf-8');
+      await fs.writeFile(targetFile, injectSkillBlock('', skillLoader(skill, localSkillEntrypoint(skill)), skill.id), 'utf-8');
       return { ...installation, path: targetFile };
     },
   },
@@ -322,6 +496,112 @@ const AGENTS = [
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+function agentOptions(detected, undetected) {
+  return [
+    ...detected.map(agent => ({
+      value: agent.id,
+      label: `${pc.green('✓')} ${agent.icon} ${agent.name}`,
+      hint: pc.green('detected'),
+    })),
+    ...undetected.map(agent => ({
+      value: agent.id,
+      label: `${pc.dim('○')} ${pc.dim(agent.icon + ' ' + agent.name)}`,
+      hint: pc.dim('not detected'),
+    })),
+  ];
+}
+
+async function selectAgentAndScope(detected, undetected, action) {
+  const selectedAgentId = await select({
+    message: 'Select target agent:',
+    options: agentOptions(detected, undetected),
+  });
+  if (isCancel(selectedAgentId)) { cancel('Cancelled.'); process.exit(0); }
+  const agent = AGENTS.find(candidate => candidate.id === selectedAgentId);
+
+  let scope = 'local';
+  if (agent.supportsGlobal) {
+    const scopeChoice = await select({
+      message: `Select ${action} scope:`,
+      options: [
+        { value: 'global', label: pc.bold('🌍  Global'), hint: 'available across projects' },
+        { value: 'local', label: pc.bold('📁  Local'), hint: 'this project only' },
+      ],
+    });
+    if (isCancel(scopeChoice)) { cancel('Cancelled.'); process.exit(0); }
+    scope = scopeChoice;
+  }
+
+  const scopeLabel = scope === 'global'
+    ? 'Global — available across projects'
+    : `Local — this project only (${process.cwd()})`;
+  note(scopeLabel, `${action} scope`);
+  return { agent, scope, scopeLabel };
+}
+
+async function removeInstalledSkills(catalog, detected, undetected) {
+  const { agent, scope, scopeLabel } = await selectAgentAndScope(detected, undetected, 'removal');
+  const installed = await installedSkillsFor(agent, process.cwd(), scope, catalog);
+  if (installed.length === 0) {
+    outro(`No installed skills found for ${agent.name} in this ${scope} scope.`);
+    return;
+  }
+
+  const selectedIds = await multiselect({
+    message: 'Select installed skills to remove: (space to toggle, enter to confirm)',
+    options: installed.map(skill => ({
+      value: skill.id,
+      label: pc.bold(skill.name),
+      hint: skill.id,
+    })),
+    required: true,
+  });
+  if (isCancel(selectedIds)) { cancel('Cancelled.'); process.exit(0); }
+  const selected = installed.filter(skill => selectedIds.includes(skill.id));
+  const bundleWarning = 'This deletes the selected skill folder, including any custom files inside it, when no other agent uses it.';
+  note(selected.map(skill => `• ${skill.name}`).join('\n') + `\n\n${pc.yellow(bundleWarning)}`, 'Removal plan');
+
+  const approved = await confirm({
+    message: `Remove ${selected.length} skill${selected.length === 1 ? '' : 's'} from ${agent.name} — ${scopeLabel}?`,
+    active: 'Remove',
+    inactive: 'Cancel',
+    initialValue: false,
+  });
+  if (isCancel(approved) || !approved) { cancel('Removal cancelled.'); process.exit(0); }
+
+  const removeSpinner = spinner();
+  removeSpinner.start(`Removing ${selected.length} skill${selected.length === 1 ? '' : 's'}...`);
+  const results = [];
+  for (const skill of selected) {
+    try {
+      results.push({ skill, ...(await uninstallSkill(skill, agent, process.cwd(), scope)), ok: true });
+    } catch (err) {
+      results.push({ skill, error: err.message, ok: false });
+    }
+  }
+  removeSpinner.stop('Removal complete');
+
+  note(
+    results.map(result => {
+      if (!result.ok) return `${pc.red('✖')} ${pc.bold(result.skill.name)} — ${pc.red(result.error)}`;
+      const status = result.shared
+        ? 'Removed this agent’s loader; kept the shared skill folder because another agent still uses it.'
+        : result.warning
+          ? `Removed eligible files; kept the skill folder. ${result.warning}`
+          : 'Removed this agent’s loader and skill folder.';
+      return `${pc.green('✔')} ${pc.bold(result.skill.name)}\n   ${status}${result.warning ? `\n   ${pc.dim(result.warning)}` : ''}`;
+    }).join('\n\n') + `\n\n${pc.dim('Restart your agent to reload its instructions.')}`,
+    `Skills for ${agent.icon} ${agent.name} — ${scopeLabel}`
+  );
+
+  const failed = results.filter(result => !result.ok);
+  if (failed.length > 0) {
+    outro(pc.yellow(`⚠️  Finished with ${failed.length} error(s).`));
+    process.exit(1);
+  }
+  outro(pc.green(`Removed ${results.length} skill${results.length === 1 ? '' : 's'} from ${agent.name}.`));
+}
+
 async function main() {
   console.log('');
   intro(
@@ -356,6 +636,19 @@ async function main() {
     'Agents on this system'
   );
 
+  const action = await select({
+    message: 'What would you like to do?',
+    options: [
+      { value: 'install', label: 'Install or update skills' },
+      { value: 'remove', label: 'Remove installed skills' },
+    ],
+  });
+  if (isCancel(action)) { cancel('Cancelled.'); process.exit(0); }
+  if (action === 'remove') {
+    await removeInstalledSkills(skills, detected, undetected);
+    return;
+  }
+
   // ── Select skills (multi-select) ───────────────────────────────
   const selectedSkillIds = await multiselect({
     message: 'Select skills to install: (space to toggle, enter to confirm)',
@@ -371,43 +664,7 @@ async function main() {
   const selectedSkills = skills.filter(sk => selectedSkillIds.includes(sk.id));
 
   // ── Select agent ───────────────────────────────────────────────
-  const selectedAgentId = await select({
-    message: 'Select target agent:',
-    options: [
-      ...detected.map(a => ({
-        value: a.id,
-        label: `${pc.green('✓')} ${a.icon} ${a.name}`,
-        hint: pc.green('detected'),
-      })),
-      ...undetected.map(a => ({
-        value: a.id,
-        label: `${pc.dim('○')} ${pc.dim(a.icon + ' ' + a.name)}`,
-        hint: pc.dim('not detected'),
-      })),
-    ],
-  });
-
-  if (isCancel(selectedAgentId)) { cancel('Cancelled.'); process.exit(0); }
-  const agent = AGENTS.find(a => a.id === selectedAgentId);
-
-  // ── Select scope (agents that support global) ──────────────────
-  let scope = 'local';
-  if (agent.supportsGlobal) {
-    const scopeChoice = await select({
-      message: 'Select install scope:',
-      options: [
-        { value: 'global', label: pc.bold('🌍  Global'), hint: 'available across projects' },
-        { value: 'local',  label: pc.bold('📁  Local'),  hint: 'this project only' },
-      ],
-    });
-    if (isCancel(scopeChoice)) { cancel('Cancelled.'); process.exit(0); }
-    scope = scopeChoice;
-  }
-
-  const scopeLabel = scope === 'global'
-    ? 'Global — available across projects'
-    : `Local — this project only (${process.cwd()})`;
-  note(scopeLabel, 'Install scope');
+  const { agent, scope, scopeLabel } = await selectAgentAndScope(detected, undetected, 'installation');
 
   // ── Install all selected skills ────────────────────────────────
   const installSpinner = spinner();

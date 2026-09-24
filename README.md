@@ -16,6 +16,8 @@ The installer lists available skills in alphabetical order, detects agent config
 
 Choose **Local — this project only** to keep a bundle in the current project or **Global — available across projects** when the selected agent supports that scope. The installer shows the chosen scope before it writes files; some agents support Local only. Agent instruction files point to the installed skill bundle, so its references and scripts remain available. Running the installer again replaces an existing skill with the current bundle and labels it **Updated**. This removes custom files stored inside that skill's install folder.
 
+Choose **Remove installed skills** in the CLI to remove selected skills from an agent and scope. The installer lists skills that are actually installed for that agent, then asks for confirmation before removing them. It removes only that agent's generated instruction block and keeps the skill bundle if another agent still uses it. If the bundle is removed, custom files stored inside its folder are deleted too.
+
 ## Available skills
 
 | Skill | Use it for |
