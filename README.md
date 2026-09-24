@@ -9,7 +9,7 @@ Requirements: Node.js 18 or newer and npm.
 Run this from the project where you want to use the skill:
 
 ```bash
-npx --yes github:deefyouknow/deef-skills
+npx github:deefyouknow/deef-skills
 ```
 
 The installer lists available skills in alphabetical order, detects agent configuration when it can, and lets you choose a skill, target agent, and install scope. Detection is a convenience; you can still select an agent that was not detected. Restart the agent after installation so it reloads its instructions.
